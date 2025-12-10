@@ -15,7 +15,6 @@ interface EditorProps {
 const Editor: React.FC<EditorProps> = ({ 
   content, 
   onContentChange, 
-  editorRef, 
   pageSettings,
   onSelectionChange,
   zoom,
@@ -23,118 +22,91 @@ const Editor: React.FC<EditorProps> = ({
 }) => {
   const [pageCount, setPageCount] = useState(1);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
-  const isBalancing = useRef(false);
   const lastEmitRef = useRef<string>(content);
+  const rafRef = useRef<number | null>(null);
 
-  // Initialize or Reset content when external prop changes drastically
+  // Initialize
   useEffect(() => {
     if (content !== lastEmitRef.current) {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = content || '<p><br/></p>';
         setPageCount(1);
-        
         setTimeout(() => {
             const firstPage = pagesContainerRef.current?.querySelector('.page-content');
-            if (firstPage) {
-                firstPage.innerHTML = tempDiv.innerHTML;
-                lastEmitRef.current = content; 
-                balancePages();
-            }
+            if (firstPage) firstPage.innerHTML = content || '<p><br/></p>';
+            balancePages();
         }, 0);
     }
   }, [content]);
 
-  // -- Pagination Logic (Same logic, just wrapped in useCallback) --
   const balancePages = useCallback(() => {
-    if (isBalancing.current || !pagesContainerRef.current) return;
-    isBalancing.current = true;
-
-    // NOTE: When using Zoom (transform: scale), clientHeight/scrollHeight values might become decimal or slightly different.
-    // However, since the internal content isn't scaled relative to the page div (the whole page div is scaled), 
-    // the internal flow usually remains consistent relative to the page boundaries.
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
     
-    const pages = Array.from(pagesContainerRef.current.querySelectorAll('.page-content')) as HTMLElement[];
-    let didChange = false;
+    rafRef.current = requestAnimationFrame(() => {
+        if (!pagesContainerRef.current) return;
+        const pages = Array.from(pagesContainerRef.current.querySelectorAll('.page-content')) as HTMLElement[];
+        let didChange = false;
 
-    // 1. Forward Pass
-    for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-        while (page.scrollHeight > page.clientHeight + 1) {
-            const lastChild = page.lastChild;
-            if (!lastChild) break;
-            if (page.childNodes.length === 1 && i === 0) break; 
-
-            let nextPage = pages[i + 1];
-            if (!nextPage) {
-                setPageCount(prev => prev + 1);
-                isBalancing.current = false;
-                return; 
-            }
-            if (nextPage.firstChild) {
-                nextPage.insertBefore(lastChild, nextPage.firstChild);
-            } else {
-                nextPage.appendChild(lastChild);
-            }
-            didChange = true;
-        }
-    }
-
-    // 2. Backward Pass
-    for (let i = 0; i < pages.length - 1; i++) {
-        const page = pages[i];
-        let nextPage = pages[i + 1];
-
-        while (nextPage && nextPage.firstChild) {
-            const firstChild = nextPage.firstChild;
-            page.appendChild(firstChild);
-            if (page.scrollHeight > page.clientHeight + 1) {
-                if (nextPage.firstChild) {
-                    nextPage.insertBefore(firstChild, nextPage.firstChild);
-                } else {
-                    nextPage.appendChild(firstChild);
+        // Forward Pass: Push overflow to next page
+        for (let i = 0; i < pages.length; i++) {
+            const page = pages[i];
+            while (page.scrollHeight > page.clientHeight + 1) {
+                let nextPage = pages[i + 1];
+                if (!nextPage) {
+                    setPageCount(c => c + 1); // Trigger render of new page
+                    return; // Stop current pass, effect will re-run
                 }
-                break; 
-            } else {
+                const last = page.lastChild;
+                if (last) {
+                    nextPage.insertBefore(last, nextPage.firstChild);
+                    didChange = true;
+                } else break;
+            }
+        }
+
+        // Backward Pass: Pull content back if space exists
+        for (let i = 0; i < pages.length - 1; i++) {
+            const page = pages[i];
+            let nextPage = pages[i + 1];
+            while (nextPage && nextPage.firstChild) {
+                const node = nextPage.firstChild;
+                page.appendChild(node);
+                if (page.scrollHeight > page.clientHeight + 1) {
+                    nextPage.insertBefore(node, nextPage.firstChild); // Put it back
+                    break;
+                }
                 didChange = true;
             }
         }
-        if (nextPage && nextPage.childNodes.length === 0 && i + 1 === pages.length - 1) {
-            setPageCount(prev => Math.max(1, prev - 1));
-            isBalancing.current = false;
-            return;
+
+        // Remove empty pages at end
+        if (pages.length > 1) {
+             const last = pages[pages.length - 1];
+             if (!last.hasChildNodes() || (last.childNodes.length === 1 && last.innerHTML === '<br>')) {
+                 setPageCount(c => c - 1);
+                 return;
+             }
         }
-    }
 
-    if (didChange) {
-       emitContentUpdate();
-    }
-    isBalancing.current = false;
-  }, [pageCount]);
+        if (didChange) {
+            const fullHtml = pages.map(p => p.innerHTML).join('');
+            if (fullHtml !== lastEmitRef.current) {
+                lastEmitRef.current = fullHtml;
+                onContentChange(fullHtml);
+            }
+        }
+    });
+  }, [pageCount, onContentChange]);
 
-  const emitContentUpdate = () => {
-      if (!pagesContainerRef.current) return;
-      const pages = Array.from(pagesContainerRef.current.querySelectorAll('.page-content')) as HTMLElement[];
-      const fullHtml = pages.map(p => p.innerHTML).join('');
-      lastEmitRef.current = fullHtml;
-      onContentChange(fullHtml);
-  };
+  useLayoutEffect(() => { balancePages(); });
 
-  useLayoutEffect(() => {
-      balancePages();
-  });
-
-  const onInputHandler = useCallback(() => {
-      balancePages();
-      emitContentUpdate();
-  }, [balancePages]);
-
-  const pageStyle = {
+  const contentStyle: React.CSSProperties = {
       paddingTop: `${pageSettings.marginTop}mm`,
       paddingBottom: `${pageSettings.marginBottom}mm`,
       paddingLeft: `${pageSettings.marginLeft}mm`,
       paddingRight: `${pageSettings.marginRight}mm`,
-      height: '297mm',
-      width: '210mm',
+      height: '100%',
+      boxSizing: 'border-box',
+      display: 'block',
+      overflow: 'hidden',
   };
 
   return (
@@ -143,61 +115,53 @@ const Editor: React.FC<EditorProps> = ({
         onClick={(e) => {
             if (e.target === e.currentTarget) {
                 const pages = pagesContainerRef.current?.querySelectorAll('.page-content');
-                const lastPage = pages?.[pages.length - 1] as HTMLElement;
-                lastPage?.focus();
+                (pages?.[pages.length - 1] as HTMLElement)?.focus();
             }
         }}
     >
       <div 
         ref={pagesContainerRef} 
-        className="flex flex-col gap-8 pb-20 origin-top"
-        style={{ transform: `scale(${zoom})`, transition: 'transform 0.2s ease-out' }}
+        id="editor-container"
+        className="editor-pages-container flex flex-col gap-8 pb-20 origin-top"
+        style={{ transform: `scale(${zoom})`, transition: 'transform 0.1s ease-out' }}
       >
           {Array.from({ length: pageCount }).map((_, index) => (
               <div 
                 key={index} 
-                className="bg-white shadow-xl relative group flex flex-col"
+                className="editor-page-node bg-white shadow-xl relative group flex flex-col"
                 style={{ width: '210mm', height: '297mm' }} 
               >
                   {/* Page Indicator */}
-                  <div className="absolute top-2 -right-12 text-gray-500 text-xs font-mono hidden xl:block w-8 scale-100">
+                  <div className="absolute top-2 -right-12 text-gray-500 text-xs font-mono hidden xl:block w-8 scale-100 select-none">
                       {index + 1} / {pageCount}
                   </div>
 
-                  {/* HEADER AREA */}
+                  {/* Header */}
                   {pageSettings.hasHeader && (
                     <div 
                         className="absolute top-0 left-0 w-full px-[25.4mm] pt-4 h-[25.4mm] text-gray-400 hover:text-black border-b border-transparent hover:border-blue-100 transition-colors cursor-text overflow-hidden"
-                        contentEditable
-                        suppressContentEditableWarning
+                        contentEditable suppressContentEditableWarning
                         onBlur={(e) => onHeaderFooterChange('header', e.currentTarget.innerHTML)}
                         dangerouslySetInnerHTML={{ __html: pageSettings.headerText || '' }}
                     />
                   )}
 
-                  {/* CONTENT AREA */}
+                  {/* Content Body */}
                   <div
-                    className="page-content outline-none prose-editor overflow-hidden flex-1 text-black caret-black"
-                    contentEditable
-                    suppressContentEditableWarning
-                    style={{
-                        ...pageStyle,
-                        boxSizing: 'border-box',
-                        // Add top/bottom padding compensation if header/footer hidden to keep text in flow, 
-                        // or just rely on margins. Margins are usually enough.
-                    }}
-                    onInput={onInputHandler}
+                    className="page-content outline-none prose-editor text-black caret-black"
+                    contentEditable suppressContentEditableWarning
+                    style={contentStyle}
+                    onInput={balancePages}
                     onMouseUp={onSelectionChange}
                     onKeyUp={onSelectionChange}
                     onBlur={onSelectionChange}
                   />
                   
-                  {/* FOOTER AREA */}
+                  {/* Footer */}
                   {pageSettings.hasFooter && (
                    <div 
                      className="absolute bottom-0 left-0 w-full px-[25.4mm] pb-4 h-[25.4mm] flex items-end text-gray-400 hover:text-black border-t border-transparent hover:border-blue-100 transition-colors cursor-text overflow-hidden"
-                     contentEditable
-                     suppressContentEditableWarning
+                     contentEditable suppressContentEditableWarning
                      onBlur={(e) => onHeaderFooterChange('footer', e.currentTarget.innerHTML)}
                      dangerouslySetInnerHTML={{ __html: pageSettings.footerText || '' }}
                   />

@@ -13,14 +13,19 @@ export interface PageSettings {
   footerText?: string; // HTML content for footer
 }
 
-export interface EditorState {
-  content: string; // HTML string
+export interface DocxParseResult {
+    html: string;
+    settings: PageSettings | null;
+}
+
+export interface EditorStyleState {
   fontName: string;
   fontSize: string;
+  lineHeight: string;
+  isBold: boolean;
+  isItalic: boolean;
+  isUnderline: boolean;
+  alignment: string;
   foreColor: string;
-  backColor: string;
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  alignment: TextAlignment;
+  hiliteColor: string;
 }

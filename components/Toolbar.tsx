@@ -1,9 +1,8 @@
-
 import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { 
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, 
-  Type, Download, FileUp, Save, Highlighter, Settings, Scissors, ArrowUpDown,
-  Image as ImageIcon, Table as TableIcon, ZoomIn, ZoomOut, Undo, Redo
+  Type, Download, FileUp, Save, Highlighter, Settings, ArrowUpDown,
+  Image as ImageIcon, Table as TableIcon, ZoomIn, ZoomOut, Undo, Redo, Hash
 } from 'lucide-react';
 import { COLORS, FONTS, FONT_SIZES } from '../constants';
 
@@ -15,6 +14,7 @@ interface ToolbarProps {
   onOpenPageSettings: () => void;
   onInsertImage: (file: File) => void;
   onInsertTable: (rows: number, cols: number) => void;
+  onInsertPageNumber: () => void;
   zoom: number;
   setZoom: (z: number) => void;
   
@@ -25,7 +25,7 @@ interface ToolbarProps {
   isBold?: boolean;
   isItalic?: boolean;
   isUnderline?: boolean;
-  alignment?: string; // 'left' | 'center' | 'right' | 'justify'
+  alignment?: string;
   foreColor?: string;
   hiliteColor?: string;
 }
@@ -38,6 +38,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onOpenPageSettings,
   onInsertImage,
   onInsertTable,
+  onInsertPageNumber,
   zoom,
   setZoom,
   currentFont,
@@ -54,6 +55,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const [tableDims, setTableDims] = useState({ rows: 3, cols: 3 });
   const tablePickerRef = useRef<HTMLDivElement>(null);
 
+  // Close table picker on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (tablePickerRef.current && !tablePickerRef.current.contains(event.target as Node)) {
@@ -81,18 +83,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
     onFormat(command, value);
   };
 
-  const handleInsertPageBreak = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const breakHtml = '<div class="page-break" contenteditable="false"></div><p><br/></p>';
-    document.execCommand('insertHTML', false, breakHtml);
-  };
-
+  // --- Styles ---
   const ButtonBase = "p-2 rounded hover:bg-gray-100 text-gray-700 transition-colors disabled:opacity-50 active:scale-95 flex flex-col items-center justify-center min-w-[34px] min-h-[34px]";
   const ActiveStyle = "bg-blue-100 text-blue-700 hover:bg-blue-200";
-  const getButtonStyle = (isActive: boolean) => `${ButtonBase} ${isActive ? ActiveStyle : ''}`;
   const SelectBase = "border border-gray-300 rounded px-2 py-1.5 text-sm bg-white text-gray-900 hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm cursor-pointer";
+  
+  const getButtonStyle = (isActive: boolean) => `${ButtonBase} ${isActive ? ActiveStyle : ''}`;
 
-  // Helpers
+  // --- Values ---
   const fontValue = currentFont || FONTS[0].value;
   const sizeValue = currentSize || '16px';
   const lineHeightValue = currentLineHeight || '1.0';
@@ -103,9 +101,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div className="sticky top-0 z-50 w-full bg-white border-b border-gray-200 shadow-sm px-4 py-2 flex items-center justify-between gap-2 flex-wrap select-none h-auto">
       
-      {/* File Operations */}
+      {/* File & Export */}
       <div className="flex items-center gap-1 border-r pr-2 border-gray-300">
-        <label className={`${ButtonBase} cursor-pointer flex-row gap-1 group relative`} title="Open .DOCX">
+        <label className={`${ButtonBase} cursor-pointer`} title="Open .DOCX">
           <input type="file" accept=".docx" className="hidden" onChange={handleFileChange} />
           <FileUp size={18} />
         </label>
@@ -133,13 +131,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </button>
       </div>
 
-      {/* Insert Objects */}
+      {/* Inserts */}
       <div className="flex items-center gap-1 border-r pr-2 border-gray-300 relative">
           <label className={`${ButtonBase} cursor-pointer`} title="Insert Image">
              <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
              <ImageIcon size={18} />
           </label>
           
+          {/* Table Picker */}
           <div className="relative" ref={tablePickerRef}>
             <button 
                 onMouseDown={(e) => { e.preventDefault(); setShowTablePicker(!showTablePicker); }} 
@@ -149,7 +148,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <TableIcon size={18} />
             </button>
             {showTablePicker && (
-                <div className="absolute top-full left-0 mt-2 bg-white border shadow-xl rounded p-3 z-50 w-48 animate-fade-in">
+                <div className="absolute top-full left-0 mt-2 bg-white border shadow-xl rounded p-3 z-50 w-48 animate-fade-in text-gray-900">
                     <div className="mb-2 text-xs font-semibold text-gray-500">Table Size</div>
                     <div className="flex items-center gap-2 mb-3">
                         <input 
@@ -179,9 +178,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 </div>
             )}
           </div>
+
+          <button onMouseDown={(e) => { e.preventDefault(); onInsertPageNumber(); }} className={ButtonBase} title="Insert Page Number">
+            <Hash size={18} />
+          </button>
       </div>
 
-      {/* Formatting */}
+      {/* Font & Format */}
       <div className="flex items-center gap-2 flex-1 flex-wrap">
         <select 
           className={`${SelectBase} w-32`} 
@@ -189,8 +192,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
           value={fontValue}
           title="Font Family"
         >
-          {isCustomFont && <option value={fontValue} className="text-gray-900 bg-white">{fontValue.split(',')[0].replace(/['"]/g, '')}</option>}
-          {FONTS.map(f => <option key={f.name} value={f.value} className="text-gray-900 bg-white">{f.name}</option>)}
+          {isCustomFont && <option value={fontValue}>{fontValue.split(',')[0].replace(/['"]/g, '')}</option>}
+          {FONTS.map(f => <option key={f.name} value={f.value}>{f.name}</option>)}
         </select>
 
         <select 
@@ -199,8 +202,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
           value={sizeValue} 
           title="Font Size"
         >
-          {isCustomSize && <option value={sizeValue} className="text-gray-900 bg-white">{sizeValue}</option>}
-          {FONT_SIZES.map(s => <option key={s.value} value={s.value} className="text-gray-900 bg-white">{s.label}</option>)}
+          {isCustomSize && <option value={sizeValue}>{sizeValue}</option>}
+          {FONT_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
 
         <div className="w-px h-6 bg-gray-300 mx-1" />
@@ -217,7 +220,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         </div>
         
-        {/* Colors (Text & Highlight) */}
+        {/* Colors */}
         <div className="relative group">
            <button className={`${ButtonBase}`} title="Text Color" onMouseDown={(e) => e.preventDefault()}>
               <Type size={18} className="text-gray-700" />
@@ -241,7 +244,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               <div className="h-1 w-full mt-0.5 rounded-full border border-gray-200" style={{ backgroundColor: hiliteColor === 'transparent' ? '#f3f4f6' : hiliteColor }}></div>
            </button>
            <div className="absolute top-full left-0 mt-1 p-2 bg-white border rounded shadow-xl hidden group-hover:grid grid-cols-4 gap-1 w-32 z-50">
-            <button className="col-span-4 text-xs text-center border mb-1 rounded hover:bg-gray-100 py-1" onMouseDown={(e) => handleAction(e, 'hiliteColor', 'transparent')}>None</button>
+            <button className="col-span-4 text-xs text-center border mb-1 rounded hover:bg-gray-100 py-1 text-gray-800" onMouseDown={(e) => handleAction(e, 'hiliteColor', 'transparent')}>None</button>
              {['#FFFF00', '#00FF00', '#00FFFF', '#FF00FF'].map(c => (
                <button key={`bg-${c}`} className="w-6 h-6 rounded-full border border-gray-200 hover:scale-110 transition-transform shadow-sm" style={{ backgroundColor: c }} onMouseDown={(e) => handleAction(e, 'hiliteColor', c)} />
              ))}
@@ -250,13 +253,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="w-px h-6 bg-gray-300 mx-1" />
 
-        {/* Alignment & Spacing */}
+        {/* Paragraph Format */}
         <div className="flex bg-gray-50 rounded border border-gray-200 p-0.5">
           <button onMouseDown={(e) => handleAction(e, 'justifyLeft')} className={getButtonStyle(alignment === 'left')} title="Align Left"><AlignLeft size={16} /></button>
           <button onMouseDown={(e) => handleAction(e, 'justifyCenter')} className={getButtonStyle(alignment === 'center')} title="Align Center"><AlignCenter size={16} /></button>
           <button onMouseDown={(e) => handleAction(e, 'justifyRight')} className={getButtonStyle(alignment === 'right')} title="Align Right"><AlignRight size={16} /></button>
+          <button onMouseDown={(e) => handleAction(e, 'justifyFull')} className={getButtonStyle(alignment === 'justify')} title="Justify"><AlignJustify size={16} /></button>
         </div>
         
+        {/* Line Height - Fixed Visibility */}
         <div className="relative group">
            <button className={`${ButtonBase} w-10`} title="Line Spacing" onMouseDown={(e) => e.preventDefault()}>
               <ArrowUpDown size={16} />
@@ -264,13 +269,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
            </button>
            <div className="absolute top-full left-0 mt-1 p-1 bg-white border rounded shadow-xl hidden group-hover:block w-20 z-50">
              {LINE_HEIGHTS.map(h => (
-               <button key={`lh-${h}`} className={`w-full text-left px-2 py-1 text-xs hover:bg-gray-100 rounded`} onMouseDown={(e) => handleAction(e, 'lineHeight', h)}>{h}</button>
+               <button 
+                key={`lh-${h}`} 
+                className="w-full text-left px-2 py-1 text-xs text-gray-900 hover:bg-gray-100 rounded"
+                onMouseDown={(e) => handleAction(e, 'lineHeight', h)}
+               >
+                 {h}
+               </button>
              ))}
            </div>
         </div>
       </div>
 
-      {/* Zoom Controls */}
+      {/* Zoom */}
       <div className="flex items-center gap-1 border-l pl-2 border-gray-300 ml-auto">
           <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className={ButtonBase} title="Zoom Out"><ZoomOut size={16} /></button>
           <span className="text-xs w-8 text-center">{Math.round(zoom * 100)}%</span>
