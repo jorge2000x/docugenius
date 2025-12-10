@@ -3,15 +3,19 @@ import React, { useState, useRef, useCallback } from 'react';
 import Toolbar from './components/Toolbar';
 import Editor from './components/Editor';
 import PageSetupModal from './components/PageSetupModal';
+import StatusBar from './components/StatusBar';
+import { ToastContainer, useToast } from './components/Toast';
 import { parseDocxFile, saveToDocx } from './services/docxService';
 import { exportToPdf } from './services/pdfService';
 import { DEFAULT_CONTENT, FONTS } from './constants';
 import { PageSettings, EditorStyleState } from './types';
+import { rgbToHex, normalizeFontSize } from './utils';
 
 function App() {
   const [content, setContent] = useState<string>(DEFAULT_CONTENT.replace('.odt', '.docx'));
   const [zoom, setZoom] = useState(1.0);
   const [showPageSettings, setShowPageSettings] = useState(false);
+  const { toasts, addToast, removeToast } = useToast();
   
   const [pageSettings, setPageSettings] = useState<PageSettings>({
     marginTop: 25.4,
@@ -39,7 +43,7 @@ function App() {
 
   const editorRef = useRef<HTMLDivElement>(null);
   
-  // --- Style Updates from Selection ---
+  // --- Style Detection ---
   const updateCurrentStyles = useCallback(() => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
@@ -52,9 +56,12 @@ function App() {
       const primaryComputed = computed.fontFamily.split(',')[0].replace(/['"]/g, '').trim().toLowerCase();
       const matchedFont = FONTS.find(f => f.value.split(',')[0].replace(/['"]/g, '').trim().toLowerCase() === primaryComputed);
       
+      const detectedColor = rgbToHex(computed.color) || '#000000';
+      const detectedBg = rgbToHex(computed.backgroundColor) || 'transparent';
+
       setCurrentStyle({
         fontName: matchedFont ? matchedFont.value : computed.fontFamily,
-        fontSize: computed.fontSize.replace(/(\d+(\.\d+)?)px/, (m, p1) => Math.round(parseFloat(p1)) + 'px'),
+        fontSize: normalizeFontSize(computed.fontSize),
         lineHeight: computed.lineHeight === 'normal' ? '1.0' : computed.lineHeight,
         isBold: document.queryCommandState('bold'),
         isItalic: document.queryCommandState('italic'),
@@ -62,23 +69,54 @@ function App() {
         alignment: document.queryCommandState('justifyCenter') ? 'center' : 
                    document.queryCommandState('justifyRight') ? 'right' : 
                    document.queryCommandState('justifyFull') ? 'justify' : 'left',
-        foreColor: computed.color, // Simplified for brevity
-        hiliteColor: computed.backgroundColor
+        foreColor: detectedColor, 
+        hiliteColor: detectedBg
       });
     }
   }, []);
 
   // --- Actions ---
   const handleFormat = (command: string, value?: string) => {
-    document.execCommand('styleWithCSS', false, 'true'); // Prefer CSS for colors/fonts
+    // Special handling for Line Height to ensure block application
+    if (command === 'lineHeight' && value) {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return;
+        
+        let container = selection.getRangeAt(0).commonAncestorContainer;
+        if (container.nodeType === 3 && container.parentElement) container = container.parentElement;
+        
+        let block = container as HTMLElement;
+        const blockTags = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'DIV'];
+        while (block && !blockTags.includes(block.tagName)) {
+            if (!block.parentElement) break;
+            block = block.parentElement;
+        }
+
+        if (block && blockTags.includes(block.tagName)) {
+            block.style.lineHeight = value;
+        } else {
+            document.execCommand('formatBlock', false, 'p');
+            const newBlock = document.getSelection()?.anchorNode?.parentElement?.closest('p');
+            if(newBlock) newBlock.style.lineHeight = value;
+        }
+        setTimeout(updateCurrentStyles, 10);
+        return;
+    }
+
+    // Standard CSS-based styling
+    document.execCommand('styleWithCSS', false, 'true'); 
+    
     if (command === 'fontSize' && value) {
-        // Pixel-perfect font size hack
         document.execCommand('fontSize', false, '7'); 
         const spans = document.querySelectorAll('span[style*="font-size: xxx-large"], font[size="7"]');
-        spans.forEach(el => (el as HTMLElement).style.fontSize = value);
+        spans.forEach(el => {
+            (el as HTMLElement).style.fontSize = value;
+            (el as HTMLElement).removeAttribute('size');
+        });
     } else {
         document.execCommand(command, false, value);
     }
+    
     document.execCommand('styleWithCSS', false, 'false');
     setTimeout(updateCurrentStyles, 10);
   };
@@ -89,32 +127,45 @@ function App() {
             const { html, settings } = await parseDocxFile(e.target.files[0]);
             setContent(html);
             if (settings) setPageSettings(prev => ({ ...prev, ...settings }));
-        } catch { alert("Error reading file"); }
+            addToast("Document loaded successfully", 'success');
+        } catch { 
+            addToast("Failed to read file", 'error'); 
+        }
     }
     if (action === 'save') {
         try {
             const blob = await saveToDocx(content, pageSettings);
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = 'doc.docx';
+            a.download = 'document.docx';
             a.click();
-        } catch { alert("Error saving file"); }
+            addToast("Document saved", 'success');
+        } catch { 
+            addToast("Failed to save document", 'error'); 
+        }
     }
     if (action === 'pdf') {
-        await exportToPdf('editor-container', 'doc.pdf');
+        try {
+            await exportToPdf('editor-container', 'document.pdf');
+            addToast("PDF Exported", 'success');
+        } catch {
+            addToast("PDF Export failed", 'error');
+        }
     }
   };
 
   const handleInsert = (type: 'image' | 'table' | 'pageNumber', data?: any) => {
       if (type === 'image' && data) {
           const reader = new FileReader();
-          reader.onload = (e) => document.execCommand('insertHTML', false, `<img src="${e.target?.result}" />`);
+          reader.onload = (e) => document.execCommand('insertHTML', false, `<img src="${e.target?.result}" style="max-width:100%" />`);
           reader.readAsDataURL(data);
       }
       if (type === 'table') {
-          let html = '<table><tbody>';
+          // FIX: Explicitly set color: #000000 to prevent white text bug in dark mode browsers
+          const baseStyle = 'border:1px solid #000; padding:4px;';
+          let html = `<table style="width:100%; border-collapse:collapse; border:1px solid #000; color: #000000;"><tbody>`;
           for(let r=0; r<data.rows; r++) {
-              html += '<tr>' + new Array(data.cols).fill('<td><br></td>').join('') + '</tr>';
+              html += '<tr>' + new Array(data.cols).fill(`<td style="${baseStyle}"><br></td>`).join('') + '</tr>';
           }
           document.execCommand('insertHTML', false, html + '</tbody></table><p><br/></p>');
       }
@@ -126,8 +177,8 @@ function App() {
       <Toolbar 
         onFormat={handleFormat} 
         onExportPdf={() => handleFileAction('pdf')}
-        onSaveOdt={() => handleFileAction('save')}
-        onImportOdt={(e) => handleFileAction('import', e)}
+        onSaveDocx={() => handleFileAction('save')}
+        onImportDocx={(e) => handleFileAction('import', e)}
         onOpenPageSettings={() => setShowPageSettings(true)}
         onInsertImage={(f) => handleInsert('image', f)}
         onInsertTable={(r, c) => handleInsert('table', {rows: r, cols: c})}
@@ -149,10 +200,8 @@ function App() {
         }}
       />
       
-      <div className="bg-white border-t border-gray-200 px-4 py-1 text-xs text-gray-500 flex justify-between select-none z-50 shadow-inner">
-         <span>DocuGenius v5.1</span>
-         <span>{content.replace(/<[^>]*>/g, '').length} chars</span>
-      </div>
+      <StatusBar content={content} version="DocuGenius v5.3" />
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       {showPageSettings && (
           <PageSetupModal 

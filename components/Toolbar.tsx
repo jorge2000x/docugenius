@@ -1,16 +1,101 @@
-import React, { useCallback, useState, useRef, useEffect } from 'react';
+
+import React, { useRef, useState, useEffect } from 'react';
 import { 
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, 
   Type, Download, FileUp, Save, Highlighter, Settings, ArrowUpDown,
-  Image as ImageIcon, Table as TableIcon, ZoomIn, ZoomOut, Undo, Redo, Hash
+  Image as ImageIcon, Table as TableIcon, ZoomIn, ZoomOut, Undo, Redo, Hash, ChevronDown
 } from 'lucide-react';
 import { COLORS, FONTS, FONT_SIZES } from '../constants';
+
+// --- Sub-Components ---
+
+const ToolbarButton: React.FC<{
+    icon: React.ReactNode;
+    isActive?: boolean;
+    onClick: (e: React.MouseEvent) => void;
+    title: string;
+    children?: React.ReactNode;
+    className?: string;
+}> = ({ icon, isActive, onClick, title, children, className }) => (
+    <button 
+        onMouseDown={(e) => { e.preventDefault(); onClick(e); }}
+        className={`p-1.5 rounded flex items-center justify-center min-w-[32px] min-h-[32px] transition-colors
+        ${isActive ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700'} 
+        ${className || ''}`}
+        title={title}
+    >
+        {icon}
+        {children}
+    </button>
+);
+
+const ToolbarSelect: React.FC<{
+    value: string;
+    options: { label?: string; name?: string; value: string }[];
+    onChange: (val: string) => void;
+    width?: string;
+    title: string;
+}> = ({ value, options, onChange, width = "w-32", title }) => (
+    <div className={`relative ${width} h-8`}>
+        <select 
+            className="w-full h-full appearance-none bg-white border border-gray-300 hover:border-blue-400 rounded px-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+            onChange={(e) => onChange(e.target.value)}
+            value={value}
+            title={title}
+        >
+            {options.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                    {opt.label || opt.name || opt.value}
+                </option>
+            ))}
+        </select>
+        <div className="absolute right-2 top-2.5 pointer-events-none text-gray-500">
+            <ChevronDown size={12} />
+        </div>
+    </div>
+);
+
+const ColorPicker: React.FC<{
+    icon: React.ReactNode;
+    color: string;
+    onChange: (c: string) => void;
+    palette: string[];
+    title: string;
+    isHighlight?: boolean;
+}> = ({ icon, color, onChange, palette, title, isHighlight }) => {
+    return (
+        <div className="relative group">
+            <button className="p-1.5 rounded hover:bg-gray-100 flex flex-col items-center justify-center min-w-[32px] min-h-[32px]" title={title} onMouseDown={e => e.preventDefault()}>
+                {icon}
+                <div 
+                    className="h-1 w-full mt-0.5 rounded-full border border-gray-200" 
+                    style={{ backgroundColor: color === 'transparent' ? '#f3f4f6' : color }}
+                />
+            </button>
+            <div className="absolute top-full left-0 mt-1 p-2 bg-white border rounded shadow-xl hidden group-hover:grid grid-cols-5 gap-1 w-40 z-50">
+                {isHighlight && (
+                    <button className="col-span-5 text-xs text-center border mb-1 rounded hover:bg-gray-100 py-1 text-gray-800" onMouseDown={(e) => { e.preventDefault(); onChange('transparent'); }}>None</button>
+                )}
+                {palette.map(c => (
+                    <button 
+                        key={c}
+                        className="w-6 h-6 rounded-full border border-gray-200 hover:scale-110 transition-transform shadow-sm"
+                        style={{ backgroundColor: c }}
+                        onMouseDown={(e) => { e.preventDefault(); onChange(c); }}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// --- Main Toolbar ---
 
 interface ToolbarProps {
   onFormat: (command: string, value?: string) => void;
   onExportPdf: () => void;
-  onSaveOdt: () => void;
-  onImportOdt: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onSaveDocx: () => void;
+  onImportDocx: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onOpenPageSettings: () => void;
   onInsertImage: (file: File) => void;
   onInsertTable: (rows: number, cols: number) => void;
@@ -18,7 +103,7 @@ interface ToolbarProps {
   zoom: number;
   setZoom: (z: number) => void;
   
-  // State props
+  // Style State
   currentFont?: string;
   currentSize?: string;
   currentLineHeight?: string;
@@ -30,32 +115,11 @@ interface ToolbarProps {
   hiliteColor?: string;
 }
 
-const Toolbar: React.FC<ToolbarProps> = ({ 
-  onFormat, 
-  onExportPdf, 
-  onSaveOdt,
-  onImportOdt,
-  onOpenPageSettings,
-  onInsertImage,
-  onInsertTable,
-  onInsertPageNumber,
-  zoom,
-  setZoom,
-  currentFont,
-  currentSize,
-  currentLineHeight,
-  isBold,
-  isItalic,
-  isUnderline,
-  alignment,
-  foreColor,
-  hiliteColor
-}) => {
+const Toolbar: React.FC<ToolbarProps> = (props) => {
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [tableDims, setTableDims] = useState({ rows: 3, cols: 3 });
   const tablePickerRef = useRef<HTMLDivElement>(null);
 
-  // Close table picker on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (tablePickerRef.current && !tablePickerRef.current.contains(event.target as Node)) {
@@ -65,217 +129,116 @@ const Toolbar: React.FC<ToolbarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onImportOdt(e);
-    e.target.value = ''; // Reset input
-  }, [onImportOdt]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files[0]) {
-          onInsertImage(e.target.files[0]);
+      if (e.target.files?.[0]) {
+          props.onInsertImage(e.target.files[0]);
           e.target.value = '';
       }
   };
 
-  const handleAction = (e: React.MouseEvent, command: string, value?: string) => {
-    e.preventDefault();
-    onFormat(command, value);
-  };
+  const fonts = props.currentFont && !FONTS.some(f => f.value === props.currentFont) 
+    ? [{ name: props.currentFont.split(',')[0].replace(/['"]/g, ''), value: props.currentFont }, ...FONTS] 
+    : FONTS;
 
-  // --- Styles ---
-  const ButtonBase = "p-2 rounded hover:bg-gray-100 text-gray-700 transition-colors disabled:opacity-50 active:scale-95 flex flex-col items-center justify-center min-w-[34px] min-h-[34px]";
-  const ActiveStyle = "bg-blue-100 text-blue-700 hover:bg-blue-200";
-  const SelectBase = "border border-gray-300 rounded px-2 py-1.5 text-sm bg-white text-gray-900 hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm cursor-pointer";
-  
-  const getButtonStyle = (isActive: boolean) => `${ButtonBase} ${isActive ? ActiveStyle : ''}`;
-
-  // --- Values ---
-  const fontValue = currentFont || FONTS[0].value;
-  const sizeValue = currentSize || '16px';
-  const lineHeightValue = currentLineHeight || '1.0';
-  const isCustomFont = !FONTS.some(f => f.value === fontValue);
-  const isCustomSize = !FONT_SIZES.some(s => s.value === sizeValue);
-  const LINE_HEIGHTS = ['1.0', '1.15', '1.5', '2.0', '2.5', '3.0'];
+  const sizes = props.currentSize && !FONT_SIZES.some(s => s.value === props.currentSize)
+    ? [{ label: props.currentSize, value: props.currentSize }, ...FONT_SIZES]
+    : FONT_SIZES;
 
   return (
-    <div className="sticky top-0 z-50 w-full bg-white border-b border-gray-200 shadow-sm px-4 py-2 flex items-center justify-between gap-2 flex-wrap select-none h-auto">
+    <div className="sticky top-0 z-50 w-full bg-white border-b border-gray-200 shadow-sm px-4 py-2 flex items-center gap-2 flex-wrap select-none h-auto">
       
-      {/* File & Export */}
-      <div className="flex items-center gap-1 border-r pr-2 border-gray-300">
-        <label className={`${ButtonBase} cursor-pointer`} title="Open .DOCX">
-          <input type="file" accept=".docx" className="hidden" onChange={handleFileChange} />
+      {/* File Operations */}
+      <div className="flex items-center gap-0.5 border-r pr-2 border-gray-300">
+        <label className="p-1.5 rounded hover:bg-gray-100 cursor-pointer text-gray-700" title="Open .DOCX">
+          <input type="file" accept=".docx" className="hidden" onChange={props.onImportDocx} />
           <FileUp size={18} />
         </label>
-        
-        <button onMouseDown={(e) => { e.preventDefault(); onSaveOdt(); }} className={ButtonBase} title="Save as .DOCX">
-          <Save size={18} />
-        </button>
-        
-        <button onMouseDown={(e) => { e.preventDefault(); onExportPdf(); }} className={ButtonBase} title="Export to PDF">
-          <Download size={18} />
-        </button>
-
-        <button onMouseDown={(e) => { e.preventDefault(); onOpenPageSettings(); }} className={ButtonBase} title="Page Setup">
-            <Settings size={18} />
-        </button>
+        <ToolbarButton icon={<Save size={18} />} onClick={props.onSaveDocx} title="Save .DOCX" />
+        <ToolbarButton icon={<Download size={18} />} onClick={props.onExportPdf} title="Export PDF" />
+        <ToolbarButton icon={<Settings size={18} />} onClick={props.onOpenPageSettings} title="Page Setup" />
       </div>
 
       {/* History */}
-      <div className="flex items-center gap-1 border-r pr-2 border-gray-300">
-        <button onMouseDown={(e) => handleAction(e, 'undo')} className={ButtonBase} title="Undo">
-            <Undo size={18} />
-        </button>
-        <button onMouseDown={(e) => handleAction(e, 'redo')} className={ButtonBase} title="Redo">
-            <Redo size={18} />
-        </button>
+      <div className="flex items-center gap-0.5 border-r pr-2 border-gray-300">
+         <ToolbarButton icon={<Undo size={18} />} onClick={() => props.onFormat('undo')} title="Undo" />
+         <ToolbarButton icon={<Redo size={18} />} onClick={() => props.onFormat('redo')} title="Redo" />
       </div>
 
-      {/* Inserts */}
-      <div className="flex items-center gap-1 border-r pr-2 border-gray-300 relative">
-          <label className={`${ButtonBase} cursor-pointer`} title="Insert Image">
+      {/* Insert */}
+      <div className="flex items-center gap-0.5 border-r pr-2 border-gray-300 relative">
+        <label className="p-1.5 rounded hover:bg-gray-100 cursor-pointer text-gray-700" title="Insert Image">
              <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
              <ImageIcon size={18} />
-          </label>
-          
-          {/* Table Picker */}
-          <div className="relative" ref={tablePickerRef}>
-            <button 
-                onMouseDown={(e) => { e.preventDefault(); setShowTablePicker(!showTablePicker); }} 
-                className={`${ButtonBase} ${showTablePicker ? 'bg-gray-100' : ''}`} 
-                title="Insert Table"
-            >
-                <TableIcon size={18} />
-            </button>
+        </label>
+        
+        <div className="relative" ref={tablePickerRef}>
+            <ToolbarButton icon={<TableIcon size={18} />} onClick={() => setShowTablePicker(!showTablePicker)} title="Insert Table" isActive={showTablePicker} />
             {showTablePicker && (
-                <div className="absolute top-full left-0 mt-2 bg-white border shadow-xl rounded p-3 z-50 w-48 animate-fade-in text-gray-900">
+                <div className="absolute top-full left-0 mt-2 bg-white border shadow-xl rounded p-3 z-50 w-48 text-gray-900 animate-fade-in">
                     <div className="mb-2 text-xs font-semibold text-gray-500">Table Size</div>
                     <div className="flex items-center gap-2 mb-3">
-                        <input 
-                            type="number" min="1" max="20" 
-                            className="w-12 border rounded px-1" 
-                            value={tableDims.cols} 
-                            onChange={(e) => setTableDims(p => ({...p, cols: parseInt(e.target.value) || 1}))}
-                        />
+                        <input type="number" min="1" max="20" className="w-12 border rounded px-1" value={tableDims.cols} onChange={(e) => setTableDims(p => ({...p, cols: parseInt(e.target.value) || 1}))} />
                         <span className="text-gray-400">x</span>
-                        <input 
-                            type="number" min="1" max="20" 
-                            className="w-12 border rounded px-1" 
-                            value={tableDims.rows} 
-                            onChange={(e) => setTableDims(p => ({...p, rows: parseInt(e.target.value) || 1}))}
-                        />
+                        <input type="number" min="1" max="20" className="w-12 border rounded px-1" value={tableDims.rows} onChange={(e) => setTableDims(p => ({...p, rows: parseInt(e.target.value) || 1}))} />
                     </div>
-                    <button 
-                        className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700"
-                        onMouseDown={(e) => {
-                            e.preventDefault();
-                            onInsertTable(tableDims.rows, tableDims.cols);
-                            setShowTablePicker(false);
-                        }}
-                    >
-                        Insert Table
-                    </button>
+                    <button className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700" onMouseDown={(e) => { e.preventDefault(); props.onInsertTable(tableDims.rows, tableDims.cols); setShowTablePicker(false); }}>Insert</button>
                 </div>
             )}
-          </div>
+        </div>
 
-          <button onMouseDown={(e) => { e.preventDefault(); onInsertPageNumber(); }} className={ButtonBase} title="Insert Page Number">
-            <Hash size={18} />
-          </button>
+        <ToolbarButton icon={<Hash size={18} />} onClick={props.onInsertPageNumber} title="Insert Page Number" />
       </div>
 
-      {/* Font & Format */}
-      <div className="flex items-center gap-2 flex-1 flex-wrap">
-        <select 
-          className={`${SelectBase} w-32`} 
-          onChange={(e) => onFormat('fontName', e.target.value)}
-          value={fontValue}
-          title="Font Family"
-        >
-          {isCustomFont && <option value={fontValue}>{fontValue.split(',')[0].replace(/['"]/g, '')}</option>}
-          {FONTS.map(f => <option key={f.name} value={f.value}>{f.name}</option>)}
-        </select>
-
-        <select 
-          className={`${SelectBase} w-20`}
-          onChange={(e) => onFormat('fontSize', e.target.value)}
-          value={sizeValue} 
-          title="Font Size"
-        >
-          {isCustomSize && <option value={sizeValue}>{sizeValue}</option>}
-          {FONT_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
+      {/* Typography */}
+      <div className="flex items-center gap-1.5 flex-1 flex-wrap">
+        <ToolbarSelect title="Font Family" options={fonts} value={props.currentFont || 'Inter, sans-serif'} onChange={(v) => props.onFormat('fontName', v)} width="w-36" />
+        <ToolbarSelect title="Font Size" options={sizes} value={props.currentSize || '16px'} onChange={(v) => props.onFormat('fontSize', v)} width="w-20" />
 
         <div className="w-px h-6 bg-gray-300 mx-1" />
 
-        <div className="flex bg-gray-50 rounded border border-gray-200 p-0.5">
-          <button onMouseDown={(e) => handleAction(e, 'bold')} className={getButtonStyle(!!isBold)} title="Bold">
-            <Bold size={16} />
-          </button>
-          <button onMouseDown={(e) => handleAction(e, 'italic')} className={getButtonStyle(!!isItalic)} title="Italic">
-            <Italic size={16} />
-          </button>
-          <button onMouseDown={(e) => handleAction(e, 'underline')} className={getButtonStyle(!!isUnderline)} title="Underline">
-            <Underline size={16} />
-          </button>
-        </div>
-        
-        {/* Colors */}
-        <div className="relative group">
-           <button className={`${ButtonBase}`} title="Text Color" onMouseDown={(e) => e.preventDefault()}>
-              <Type size={18} className="text-gray-700" />
-              <div className="h-1 w-full mt-0.5 rounded-full border border-gray-200" style={{ background: foreColor }}></div>
-           </button>
-           <div className="absolute top-full left-0 mt-1 p-2 bg-white border rounded shadow-xl hidden group-hover:grid grid-cols-5 gap-1 w-40 z-50">
-             {COLORS.map(c => (
-               <button 
-                 key={`text-${c}`}
-                 className="w-6 h-6 rounded-full border border-gray-200 hover:scale-110 transition-transform shadow-sm"
-                 style={{ backgroundColor: c }}
-                 onMouseDown={(e) => handleAction(e, 'foreColor', c)}
-               />
-             ))}
-           </div>
+        <div className="flex bg-gray-50 rounded border border-gray-200 p-0.5 gap-0.5">
+           <ToolbarButton icon={<Bold size={16} />} onClick={() => props.onFormat('bold')} isActive={props.isBold} title="Bold" />
+           <ToolbarButton icon={<Italic size={16} />} onClick={() => props.onFormat('italic')} isActive={props.isItalic} title="Italic" />
+           <ToolbarButton icon={<Underline size={16} />} onClick={() => props.onFormat('underline')} isActive={props.isUnderline} title="Underline" />
         </div>
 
+        <ColorPicker 
+            icon={<Type size={18} className="text-gray-700" />} 
+            color={props.foreColor || '#000000'} 
+            onChange={(c) => props.onFormat('foreColor', c)} 
+            palette={COLORS} 
+            title="Text Color"
+        />
+        
+        <ColorPicker 
+            icon={<Highlighter size={18} className="text-gray-700" />} 
+            color={props.hiliteColor || 'transparent'} 
+            onChange={(c) => props.onFormat('hiliteColor', c)} 
+            palette={['#FFFF00', '#00FF00', '#00FFFF', '#FF00FF', '#FFA500']} 
+            title="Highlight Color"
+            isHighlight
+        />
+
+        <div className="w-px h-6 bg-gray-300 mx-1" />
+
+        {/* Alignment */}
+        <div className="flex bg-gray-50 rounded border border-gray-200 p-0.5 gap-0.5">
+           <ToolbarButton icon={<AlignLeft size={16} />} onClick={() => props.onFormat('justifyLeft')} isActive={props.alignment === 'left'} title="Left" />
+           <ToolbarButton icon={<AlignCenter size={16} />} onClick={() => props.onFormat('justifyCenter')} isActive={props.alignment === 'center'} title="Center" />
+           <ToolbarButton icon={<AlignRight size={16} />} onClick={() => props.onFormat('justifyRight')} isActive={props.alignment === 'right'} title="Right" />
+           <ToolbarButton icon={<AlignJustify size={16} />} onClick={() => props.onFormat('justifyFull')} isActive={props.alignment === 'justify'} title="Justify" />
+        </div>
+
+        {/* Line Height */}
          <div className="relative group">
-           <button className={`${ButtonBase}`} title="Highlight" onMouseDown={(e) => e.preventDefault()}>
-              <Highlighter size={18} />
-              <div className="h-1 w-full mt-0.5 rounded-full border border-gray-200" style={{ backgroundColor: hiliteColor === 'transparent' ? '#f3f4f6' : hiliteColor }}></div>
-           </button>
-           <div className="absolute top-full left-0 mt-1 p-2 bg-white border rounded shadow-xl hidden group-hover:grid grid-cols-4 gap-1 w-32 z-50">
-            <button className="col-span-4 text-xs text-center border mb-1 rounded hover:bg-gray-100 py-1 text-gray-800" onMouseDown={(e) => handleAction(e, 'hiliteColor', 'transparent')}>None</button>
-             {['#FFFF00', '#00FF00', '#00FFFF', '#FF00FF'].map(c => (
-               <button key={`bg-${c}`} className="w-6 h-6 rounded-full border border-gray-200 hover:scale-110 transition-transform shadow-sm" style={{ backgroundColor: c }} onMouseDown={(e) => handleAction(e, 'hiliteColor', c)} />
-             ))}
-           </div>
-        </div>
-
-        <div className="w-px h-6 bg-gray-300 mx-1" />
-
-        {/* Paragraph Format */}
-        <div className="flex bg-gray-50 rounded border border-gray-200 p-0.5">
-          <button onMouseDown={(e) => handleAction(e, 'justifyLeft')} className={getButtonStyle(alignment === 'left')} title="Align Left"><AlignLeft size={16} /></button>
-          <button onMouseDown={(e) => handleAction(e, 'justifyCenter')} className={getButtonStyle(alignment === 'center')} title="Align Center"><AlignCenter size={16} /></button>
-          <button onMouseDown={(e) => handleAction(e, 'justifyRight')} className={getButtonStyle(alignment === 'right')} title="Align Right"><AlignRight size={16} /></button>
-          <button onMouseDown={(e) => handleAction(e, 'justifyFull')} className={getButtonStyle(alignment === 'justify')} title="Justify"><AlignJustify size={16} /></button>
-        </div>
-        
-        {/* Line Height - Fixed Visibility */}
-        <div className="relative group">
-           <button className={`${ButtonBase} w-10`} title="Line Spacing" onMouseDown={(e) => e.preventDefault()}>
-              <ArrowUpDown size={16} />
-              <span className="text-[10px] leading-none mt-0.5 font-bold">{lineHeightValue}</span>
+           <button className="p-1.5 rounded hover:bg-gray-100 flex items-center gap-1 min-h-[32px]" title="Line Spacing" onMouseDown={(e) => e.preventDefault()}>
+              <ArrowUpDown size={16} className="text-gray-700" />
+              <span className="text-[10px] font-bold text-gray-700">{props.currentLineHeight || '1.0'}</span>
            </button>
            <div className="absolute top-full left-0 mt-1 p-1 bg-white border rounded shadow-xl hidden group-hover:block w-20 z-50">
-             {LINE_HEIGHTS.map(h => (
-               <button 
-                key={`lh-${h}`} 
-                className="w-full text-left px-2 py-1 text-xs text-gray-900 hover:bg-gray-100 rounded"
-                onMouseDown={(e) => handleAction(e, 'lineHeight', h)}
-               >
-                 {h}
-               </button>
+             {['1.0', '1.15', '1.5', '2.0', '2.5', '3.0'].map(h => (
+               <button key={h} className="w-full text-left px-2 py-1 text-xs text-gray-900 hover:bg-gray-100 rounded" onMouseDown={(e) => { e.preventDefault(); props.onFormat('lineHeight', h); }}>{h}</button>
              ))}
            </div>
         </div>
@@ -283,9 +246,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Zoom */}
       <div className="flex items-center gap-1 border-l pl-2 border-gray-300 ml-auto">
-          <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className={ButtonBase} title="Zoom Out"><ZoomOut size={16} /></button>
-          <span className="text-xs w-8 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(Math.min(2.0, zoom + 0.1))} className={ButtonBase} title="Zoom In"><ZoomIn size={16} /></button>
+          <ToolbarButton icon={<ZoomOut size={16} />} onClick={() => props.setZoom(Math.max(0.5, props.zoom - 0.1))} title="Zoom Out" />
+          <span className="text-xs w-8 text-center text-gray-700">{Math.round(props.zoom * 100)}%</span>
+          <ToolbarButton icon={<ZoomIn size={16} />} onClick={() => props.setZoom(Math.min(2.0, props.zoom + 0.1))} title="Zoom In" />
       </div>
     </div>
   );

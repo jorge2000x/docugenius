@@ -38,21 +38,33 @@
       
       /* Editor Typography */
       .prose-editor {
-        color: #000000;
-        caret-color: #000000;
-        font-size: 16px; /* Base size */
+        color: #000000 !important;
+        caret-color: #000000 !important;
+        font-size: 16px; 
         line-height: 1.5;
         outline: none;
         word-wrap: break-word;
       }
-      .prose-editor h1 { font-size: 2em; font-weight: bold; margin: 0.67em 0; }
-      .prose-editor h2 { font-size: 1.5em; font-weight: bold; margin: 0.75em 0; }
-      .prose-editor h3 { font-size: 1.17em; font-weight: bold; margin: 0.83em 0; }
+
+      /* CRITICAL FIX: Force tables to inherit the black color from parent 
+         to override User Agent Dark Mode styles */
+      .prose-editor table,
+      .prose-editor tbody,
+      .prose-editor tr,
+      .prose-editor td,
+      .prose-editor th {
+        color: inherit !important;
+        border-color: #9ca3af; /* Gray-400 for borders */
+      }
+
+      .prose-editor h1 { font-size: 2em; font-weight: bold; margin: 0.67em 0; color: inherit !important; }
+      .prose-editor h2 { font-size: 1.5em; font-weight: bold; margin: 0.75em 0; color: inherit !important; }
+      .prose-editor h3 { font-size: 1.17em; font-weight: bold; margin: 0.83em 0; color: inherit !important; }
       .prose-editor p { margin: 1em 0; min-height: 1em; }
       .prose-editor ul { list-style-type: disc; padding-left: 1.5em; margin: 1em 0; }
       .prose-editor ol { list-style-type: decimal; padding-left: 1.5em; margin: 1em 0; }
       .prose-editor li { margin-bottom: 0.25em; }
-      .prose-editor blockquote { border-left: 4px solid #e5e7eb; padding-left: 1em; font-style: italic; color: #4b5563; margin: 1em 0; }
+      .prose-editor blockquote { border-left: 4px solid #e5e7eb; padding-left: 1em; font-style: italic; color: #4b5563 !important; margin: 1em 0; }
       
       /* Images in editor */
       .prose-editor img {
@@ -70,6 +82,7 @@
       .prose-editor td, .prose-editor th {
         border: 1px solid #ccc;
         padding: 4px;
+        vertical-align: top;
       }
 
       /* Page Numbering Logic */
@@ -80,7 +93,7 @@
         counter-increment: page-counter;
       }
       .page-number {
-        background: #f3f4f6; /* Light gray bg for visibility in editor */
+        background: #f3f4f6; 
         border-radius: 2px;
         padding: 0 2px;
         display: inline-block;
@@ -92,7 +105,7 @@
          content: counter(page-counter);
       }
       .page-number > span {
-         display: none; /* Hide the '#' placeholder */
+         display: none; 
       }
 
       /* Print styles */
@@ -119,11 +132,11 @@
           box-shadow: none !important;
           margin: 0 !important;
           page-break-after: always;
-          height: auto !important; /* Allow dynamic height on print */
+          height: auto !important; 
           min-height: var(--page-height);
         }
         .page-number {
-          background: transparent !important; /* No background on print */
+          background: transparent !important; 
         }
       }
     </style>
