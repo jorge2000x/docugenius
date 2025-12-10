@@ -1,0 +1,5 @@
+{
+  "name": "DocuGenius - DOCX Editor",
+  "description": "A powerful local web application for editing .docx files with rich text capabilities, list support, page layout settings, and DOCX/PDF export.",
+  "requestFramePermissions": []
+}
